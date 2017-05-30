@@ -1,6 +1,7 @@
 #include <nlopt.hpp>
 #include <vector>
 #include <iostream>
+#include <fstream>
 
 struct plane_curve_point {
     double x, y, t;
@@ -84,27 +85,23 @@ double objective(unsigned n, const double*, double*, void*) {
     // Variation constraint integral
     // @todo replace euler integration with something smarter
     auto variationIntegralSum = 0.;
-    //auto curvatureIntegralSum = 0.;
 
     for (auto i = 0; i < segments.size(); ++i) {
         const auto t_min = curve[i].t;
         const auto t_max = curve[i + 1].t;
         const auto DT_REFERENCE = 1.0e-3;
-        // @todo floor may be safer
         const auto steps = std::ceil((t_max - t_min) / DT_REFERENCE);
         const auto dt = (t_max - t_min) / steps;
 
         for (auto step = 0; step < steps; ++step) {
             const auto t = t_min + dt * step;
             const auto dc = dcurvature(segments[i], t);
-            //const auto c = curvature(segments[i], t);
 
             variationIntegralSum += dc * dc * dt;
-            //curvatureIntegralSum += c * c * dt;
         }
     }
 
-    return DISTANCE_WEIGHT * distanceSq + VARIATION_WEIGHT * variationIntegralSum;// + VARIATION_WEIGHT * curvatureIntegralSum;
+    return DISTANCE_WEIGHT * distanceSq + VARIATION_WEIGHT * variationIntegralSum;
 }
 
 const auto CONSTRAINTS_PER_KNOT = 8;
@@ -140,6 +137,7 @@ void start_end_constraints(unsigned m, double* result, unsigned n, const double*
     // @todo
     // second derivative at start
     // second derivative at end
+    //result[4] = curvature(segments.front(), curve.front().t);
 }
 
 const auto CURVATURE_CONSTRAINTS_NUM = segments.size();
@@ -172,15 +170,34 @@ int main() {
         std::cout << "e.what(): " << exception.what() << std::endl;
     }
 
-    for (auto&& segmentInfo : segments) {
-        std::cout << "x(t): " << segmentInfo.x_coeffs.x << ", " << segmentInfo.x_coeffs.dx << ", " << segmentInfo.x_coeffs.dx2 << ", " << segmentInfo.x_coeffs.dx3 << ", " << segmentInfo.x_coeffs.dx4 << "\n";
-        std::cout << "y(t): " << segmentInfo.y_coeffs.x << ", " << segmentInfo.y_coeffs.dx << ", " << segmentInfo.y_coeffs.dx2 << ", " << segmentInfo.y_coeffs.dx3 << ", " << segmentInfo.y_coeffs.dx4 << "\n";
-    }
-
     std::cout << "objective = " << minFunctional << std::endl;
 
     for (auto i = 1; i < curve.size(); ++i) {
         auto&& seg = segments[i - 1];
         std::cout << "x=" << spline(seg.x_coeffs, curve[i].t) << "\t\ty=" << spline(seg.y_coeffs, curve[i].t) << "\t\tcurvature=" << curvature(seg, curve[i].t) << "\t\tt=" << curve[i].t << '\n';
     }
+
+    std::ofstream file("spline.js");
+
+    file << "var splineTMin = " << curve.front().t << ", splineTMax = " << curve.back().t << std::endl;
+    // print original spline
+    file << "var originalSpline = [\n";
+    for (auto i = 0; i < curve.size(); ++i) {
+        file << '\t' << curve[i].x << ", " << curve[i].y << ", " << curve[i].t << ",\n";
+    }
+    file << ']' << std::endl;
+
+    // print x(t)
+    file << "var xSegments = [\n";
+    for (auto i = 0; i < segments.size(); ++i) {
+        file << '\t' << curve[i].t << ", " << curve[i + 1].t << ", " << segments[i].x_coeffs.x << ", " << segments[i].x_coeffs.dx << ", " << segments[i].x_coeffs.dx2 << ", " << segments[i].x_coeffs.dx3 << ", " << segments[i].x_coeffs.dx4 << ",\n";
+    }
+    file << ']' << std::endl;
+
+    // print y(t)
+    file << "var ySegments = [\n";
+    for (auto i = 0; i < segments.size(); ++i) {
+        file << '\t' << curve[i].t << ", " << curve[i + 1].t << ", " << segments[i].y_coeffs.x << ", " << segments[i].y_coeffs.dx << ", " << segments[i].y_coeffs.dx2 << ", " << segments[i].y_coeffs.dx3 << ", " << segments[i].y_coeffs.dx4 << ",\n";
+    }
+    file << ']' << std::endl;
 }
