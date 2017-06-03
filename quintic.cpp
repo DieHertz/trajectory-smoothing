@@ -1,42 +1,68 @@
+#include "dual.hpp"
 #include <gsl/gsl_integration.h>
 #include <nlopt.hpp>
+#include <random>
 #include <vector>
 #include <iostream>
 #include <fstream>
 
-struct vec2 {
-    double x, y;
+template<typename T>
+struct vec2_base {
+    T x, y;
 
-    vec2 operator-() const {
+    vec2_base operator-() const {
         return { -x, -y };
     }
 };
 
-vec2 operator+(const vec2& a, const vec2& b) {
+template<typename T>
+vec2_base<T> operator+(const vec2_base<T>& a, const vec2_base<T>& b) {
     return { a.x + b.x, a.y + b.y };
 }
 
-vec2 operator-(const vec2& a, const vec2& b) {
+template<typename T>
+vec2_base<T> operator-(const vec2_base<T>& a, const vec2_base<T>& b) {
     return a + -b;
 }
 
-vec2 operator*(const vec2& a, const double k) {
+template<typename T>
+vec2_base<T> operator*(const vec2_base<T>& a, const T& k) {
     return { a.x * k, a.y * k };
 }
 
-vec2 operator*(const double k, const vec2& a) {
+template<typename T>
+vec2_base<T> operator*(const T& k, const vec2_base<T>& a) {
     return a * k;
 }
 
+template<typename T>
+vec2_base<T> operator*(const vec2_base<T>& a, const double k) {
+    return a * dual{k};
+}
+
+template<typename T>
+vec2_base<T> operator*(const double k, const vec2_base<T>& a) {
+    return a * dual{k};
+}
+
+template<typename T>
+vec2_base<T> operator/(const vec2_base<T>& a, const T& k) {
+    return { a.x / k, a.y / k };
+}
+
 //  Good ole' dot product
-double dot(const vec2& a, const vec2& b) {
+template<typename T>
+T dot(const vec2_base<T>& a, const vec2_base<T>& b) {
     return a.x * b.x + a.y * b.y;
 }
 
 //  Module of cross product, let's call it cross for convenience
-double cross(const vec2& a, const vec2& b) {
+template<typename T>
+T cross(const vec2_base<T>& a, const vec2_base<T>& b) {
     return a.x * b.y - a.y * b.x;
 }
+
+using vec2 = vec2_base<dual>;
 
 struct curve_vertex {
     vec2 pos;
@@ -46,71 +72,96 @@ struct curve_vertex {
 };
 
 struct curve_segment {
-    double magnitude_start;
-    double magnitude_end;
-    double alpha_start;
-    double alpha_end;
+    dual magnitude_start;
+    dual magnitude_end;
+    dual alpha_start;
+    dual alpha_end;
 };
 
-std::vector<vec2> originalVertices{
-    { 0, 0 },
-    { 1, 1 },
-    { 2, 2 },
-    { 3, 2 }
+struct vertex {
+    vec2 pos;
+    double t;
 };
+
+/*std::vector<vertex> originalVertices{
+    { { 0, 0 }, 0 },
+    { { 1, 1 }, 1 },
+    { { 2, 2 }, 2 },
+    { { 3, 2 }, 3 },
+    { { 4, 2 }, 4 },
+};*/
 
 std::vector<curve_vertex> vertices{
     { { 0, 0 }, { 1, 1 }, { 0, 0 }, 0 },
-    { { 1, 1 }, { 1, 1 }, { 0, 0 }, 1 },
-    { { 2, 2 }, { 1, 1 }, { 0, 0 }, 2 },
-    { { 3, 2 }, { 1, 0 }, { 0, 0 }, 3 }
+    { { 1, 1 }, { 1, 1 }, { 1, 1 }, 1 },
+    { { 2, 2 }, { 1, 1 }, { 1, 1 }, 2 },
+    { { 3, 2 }, { 1, 0 }, { 1, -1 }, 3 },
+    { { 4, 2 }, { 1, 0 }, { 0, 0 }, 4 },
 };
 
 std::vector<curve_segment> segments{
-    { 1, 1, 1, 1 },
-    { 1, 1, 1, 1 },
-    { 1, 1, 1, 1 }
+    { 1, 1, 0, 0 },
+    { 1, 1, 0, 0 },
+    { 1, 1, 0, 0 },
+    { 1, 1, 0, 0 },
 };
+
+std::vector<vertex> originalVertices{
+    { { 0, 0 }, 0 },
+    { { 1, 1 }, 1 },
+    { { 2, 2 }, 2 },
+    { { 3, 3 }, 3 },
+    { { 4, 4 }, 4 },
+    { { 5, 5 }, 5 },
+    { { 6, 6 }, 6 },
+    { { 7, 7 }, 7 },
+    { { 8, 8 }, 8 },
+    { { 9, 9 }, 9 },
+    { { 10, 10 }, 10 },
+};
+
+std::vector<curve_vertex> auto_vertices;
+std::vector<curve_segment> auto_segments;
 
 void packArguments(double* out) {
     for (size_t i = 1; i < vertices.size() - 1; ++i) {
-        *out++ = vertices[i].pos.x;
-        *out++ = vertices[i].pos.y;
+        *out++ = vertices[i].pos.x.x;
+        *out++ = vertices[i].pos.y.x;
     }
 
     for (auto&& v : vertices) {
-        *out++ = v.tangent.x;
-        *out++ = v.tangent.y;
-        *out++ = v.curvature.x;
-        *out++ = v.curvature.y;
+        *out++ = v.tangent.x.x;
+        *out++ = v.tangent.y.x;
+        *out++ = v.curvature.x.x;
+        *out++ = v.curvature.y.x;
     }
 
     for (auto&& s : segments) {
-        *out++ = s.magnitude_start;
-        *out++ = s.magnitude_end;
-        *out++ = s.alpha_start;
-        *out++ = s.alpha_end;
+        *out++ = s.magnitude_start.x;
+        *out++ = s.magnitude_end.x;
+        *out++ = s.alpha_start.x;
+        *out++ = s.alpha_end.x;
     }
 }
 
 void unpackArguments(const double* out) {
     for (size_t i = 1; i < vertices.size() - 1; ++i) {
-        vertices[i].pos.x = *out++;
-        vertices[i].pos.y = *out++;
+        vertices[i].pos.x.x = *out++;
+        vertices[i].pos.y.x = *out++;
     }
 
     for (auto&& v : vertices) {
-       v.tangent.x = *out++;
-       v.tangent.y = *out++;
-       v.curvature.x = *out++;
-       v.curvature.y = *out++;
+       v.tangent.x.x = *out++;
+       v.tangent.y.x = *out++;
+       v.curvature.x.x = *out++;
+       v.curvature.y.x = *out++;
     }
 
     for (auto&& s : segments) {
-        s.magnitude_start = *out++;
-        s.magnitude_end = *out++;
-        s.alpha_start = *out++;
-        s.alpha_end = *out++;
+        s.magnitude_start.x = *out++;
+        s.magnitude_end.x = *out++;
+        s.alpha_start.x = *out++;
+        s.alpha_end.x = *out++;
     }
 }
 
@@ -260,141 +311,166 @@ vec2 d3hermiteQuintic(const curve_vertex& start, const curve_vertex& end, const 
     return spline<d3hermiteQuintic0, d3hermiteQuintic1, d3hermiteQuintic2, d3hermiteQuintic3, d3hermiteQuintic4, d3hermiteQuintic5>(start, end, t);
 }
 
-double curvature(const curve_vertex& start, const curve_vertex& end, const double t) {
+dual curvature(const curve_vertex& start, const curve_vertex& end, const double t) {
     const auto dcurve = dhermiteQuintic(start, end, t);
     const auto d2curve = d2hermiteQuintic(start, end, t);
 
-    return cross(dcurve, d2curve) / std::pow(dot(dcurve, dcurve), 1.5);
+    return cross(dcurve, d2curve) / pow(dot(dcurve, dcurve), 1.5);
 }
 
-double dcurvature(const curve_vertex& start, const curve_vertex& end, const double t) {
+dual dcurvature(const curve_vertex& start, const curve_vertex& end, const double t) {
     const auto dcurve = dhermiteQuintic(start, end, t);
     const auto d2curve = d2hermiteQuintic(start, end, t);
     const auto d3curve = d3hermiteQuintic(start, end, t);
 
     const auto velocitySq = dot(dcurve, dcurve);
 
-    return (cross(dcurve, d3curve) * std::pow(velocitySq, 1.5) - 3 * cross(dcurve, d2curve) * std::sqrt(velocitySq) * dot(dcurve, d2curve)) / std::pow(velocitySq, 3);
+    return (cross(dcurve, d3curve) * pow(velocitySq, 1.5) - 3 * cross(dcurve, d2curve) * sqrt(velocitySq) * dot(dcurve, d2curve)) / pow(velocitySq, 3);
 }
 
 const auto DISTANCE_WEIGHT = 1.0;
 const auto VARIATION_WEIGHT = 1.0;
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dposx_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return { h0(t), 0 };
+dual d(const dual& d) {
+    return { d.x, 1 };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dposy_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return { 0, h0(t) };
+vec2 dx(const vec2& v) {
+    return { d(v.x), v.y };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dtangentx_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+vec2 dy(const vec2& v) {
+    return { v.x, d(v.y) };
+}
+
+curve_vertex dtangent_x(const curve_vertex& v) {
     return {
-        (h1(t) + segment.alpha_start * h2(t)) * segment.magnitude_start * segment.magnitude_start,
-        0
+        v.pos,
+        dx(v.tangent),
+        v.curvature
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dtangenty_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_vertex dtangent_y(const curve_vertex& v) {
     return {
-        0,
-        (h1(t) + segment.alpha_start * h2(t)) * segment.magnitude_start * segment.magnitude_start
+        v.pos,
+        dy(v.tangent),
+        v.curvature
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dcurvaturex_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_vertex dcurvature_x(const curve_vertex& v) {
     return {
-        h2(t) * segment.magnitude_start * segment.magnitude_start * segment.magnitude_start * segment.magnitude_start,
-        0
+        v.pos,
+        v.tangent,
+        dx(v.curvature)
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dcurvaturey_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_vertex dcurvature_y(const curve_vertex& v) {
     return {
-        0,
-        h2(t) * segment.magnitude_start * segment.magnitude_start * segment.magnitude_start * segment.magnitude_start
+        v.pos,
+        v.curvature,
+        dy(v.tangent)
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dposx_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return { h5(t), 0 };
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dposy_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return { 0, h5(t) };
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dtangentx_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_segment dmagnitude_start(const curve_segment& s) {
     return {
-        (h4(t) + segment.alpha_end * h3(t)) * segment.magnitude_end * segment.magnitude_end,
-        0
+        d(s.magnitude_start),
+        s.magnitude_end,
+        s.alpha_start,
+        s.alpha_end
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dtangenty_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_segment dmagnitude_end(const curve_segment& s) {
     return {
-        0,
-        (h4(t) + segment.alpha_end * h3(t)) * segment.magnitude_end * segment.magnitude_end
+        s.magnitude_start,
+        d(s.magnitude_end),
+        s.alpha_start,
+        s.alpha_end
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dcurvaturex_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_segment dalpha_start(const curve_segment& s) {
     return {
-        h3(t) * segment.magnitude_end * segment.magnitude_end * segment.magnitude_end * segment.magnitude_end,
-        0
+        s.magnitude_start,
+        s.magnitude_end,
+        d(s.alpha_start),
+        s.alpha_end
     };
 }
 
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dcurvaturey_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
+curve_segment dalpha_end(const curve_segment& s) {
     return {
-        0,
-        h3(t) * segment.magnitude_end * segment.magnitude_end * segment.magnitude_end * segment.magnitude_end
+        s.magnitude_start,
+        s.magnitude_end,
+        s.alpha_start,
+        d(s.alpha_end)
     };
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dmagnitude_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return h1(t) * 2 * start.tangent * segment.magnitude_start +
-        h2(t) * (4 * start.curvature * segment.magnitude_start * segment.magnitude_start * segment.magnitude_start + 2 * start.tangent * segment.magnitude_start * segment.alpha_start);
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dmagnitude_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return h4(t) * 2 * end.tangent * segment.magnitude_end +
-        h3(t) * (4 * end.curvature * segment.magnitude_end * segment.magnitude_end * segment.magnitude_end + 2 * end.tangent * segment.magnitude_end * segment.alpha_end);
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dalpha_start(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return h2(t) * segment.magnitude_start * segment.magnitude_start * start.tangent;
-}
-
-template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
-vec2 df_dalpha_end(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end, const double t) {
-    return h3(t) * segment.magnitude_end * segment.magnitude_end * end.tangent;
-}
-
-using partial_derivative_f = vec2(const curve_vertex&, const curve_segment&, const curve_vertex&, const double);
-
-template<partial_derivative_f f, partial_derivative_f df, partial_derivative_f d2f, partial_derivative_f d3f>
-double integrate(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end) {
-    return 2*(((double) rand()) / RAND_MAX - 0.5);
 }
 
 const auto INTEGRATION_WORKSPACE_SIZE = 1000;
 const auto workspace = gsl_integration_workspace_alloc(INTEGRATION_WORKSPACE_SIZE);
+
+template<dual_value which>
+double integrate(const curve_vertex& start, const curve_segment& segment, const curve_vertex& end) {
+    const auto magStart = segment.magnitude_start * segment.magnitude_start;
+    const auto magEnd = segment.magnitude_end * segment.magnitude_end;
+
+    using vertex_pair = std::pair<const curve_vertex&, const curve_vertex&>;
+    vertex_pair vertices{
+        {
+            start.pos,
+            start.tangent * magStart,
+            start.curvature * magStart * magStart + start.tangent * segment.alpha_start * magStart
+        },
+        {
+            end.pos,
+            end.tangent * magEnd,
+            end.curvature * magEnd * magEnd + end.tangent * segment.alpha_end * magEnd,
+        }
+    };
+
+    /*gsl_function integrand{
+        [] (double t, void* params) -> double {
+            auto& vertices = *static_cast<vertex_pair*>(params);
+
+            const auto dc = dcurvature(vertices.first, vertices.second, t);
+            const auto speed = dhermiteQuintic(vertices.first, vertices.second, t);
+            const auto f = get<which>(dc * dc / sqrt(dot(speed, speed)));
+
+            return f;
+        },
+        &vertices
+    };
+
+    double result, absError;
+    size_t neval;
+
+    gsl_integration_qag(&integrand, 0., 1., 1e-3, 1e-3, INTEGRATION_WORKSPACE_SIZE, GSL_INTEG_GAUSS15, workspace, &result, &absError);
+    //gsl_integration_qng(&integrand, 0., 1., 1e-3, 10, &result, &absError, &neval);*/
+
+    const auto steps = 1000;
+    const auto dt = 1. / steps;
+    auto result = 0.;
+    for (auto i = 0; i < steps; ++i) {
+        const auto t = i * dt;
+
+        const auto dc = dcurvature(vertices.first, vertices.second, t);
+        const auto speed = dhermiteQuintic(vertices.first, vertices.second, t);
+        const auto f = dc * dc / sqrt(dot(speed, speed));
+
+        result += get<which>(f) * dt;
+    }
+
+    if (std::isnan(result)) {
+        throw 1;
+    }
+
+    return result;
+}
 
 double objective(unsigned n, const double* x, double* grad, void*) {
     unpackArguments(x);
@@ -402,7 +478,7 @@ double objective(unsigned n, const double* x, double* grad, void*) {
     // Distance objective, only applied for inner points
     auto distanceSq = 0.;
     for (size_t i = 1; i < vertices.size() - 1; ++i) {
-        distanceSq += dot(originalVertices[i] - vertices[i].pos, originalVertices[i] - vertices[i].pos);
+        distanceSq += dot(vertices[i].pos - originalVertices[i].pos, vertices[i].pos - originalVertices[i].pos).x;
     }
 
     // Variation constraint integral
@@ -410,94 +486,123 @@ double objective(unsigned n, const double* x, double* grad, void*) {
     auto variationIntegralSum = 0.;
 
     if (grad) {
-        // for all points
-        // integrate dF/dtangentx over segment to the left and segment to the right
-        // integrate dF/dtangenty over segment to the left and segment to the right
-        // integrate dF/dcurvaturex over segment to the left and segment to the right
-        // integrate dF/dcurvaturey over segment to the left and segment to the right
-        *grad++ = integrate<dcurve_dtangentx_start, ddcurve_dtangentx_start, dd2curve_dtangentx_start, dd3curve_dtangentx_start>(vertices.front(), segments.front(), vertices[1]);
-        *grad++ = integrate<dcurve_dtangenty_start, ddcurve_dtangenty_start, dd2curve_dtangenty_start, dd3curve_dtangenty_start>(vertices.front(), segments.front(), vertices[1]);
-        *grad++ = integrate<dcurve_dcurvaturex_start, ddcurve_dcurvaturex_start, dd2curve_dcurvaturex_start, dd3curve_dcurvaturex_start>(vertices.front(), segments.front(), vertices[1]);
-        *grad++ = integrate<dcurve_dcurvaturey_start, ddcurve_dcurvaturey_start, dd2curve_dcurvaturey_start, dd3curve_dcurvaturey_start>(vertices.front(), segments.front(), vertices[1]);
-
+        // for movable points
         for (size_t i = 1; i < vertices.size() - 1; ++i) {
-            *grad++ = integrate<dcurve_dtangentx_end, ddcurve_dtangentx_end, dd2curve_dtangentx_end, dd3curve_dtangentx_end>(vertices[i - 1], segments[i - 1], vertices[i]) + integrate<dcurve_dtangentx_start, ddcurve_dtangentx_start, dd2curve_dtangentx_start, dd3curve_dtangentx_start>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dtangenty_end, ddcurve_dtangenty_end, dd2curve_dtangenty_end, dd3curve_dtangenty_end>(vertices[i - 1], segments[i - 1], vertices[i]) + integrate<dcurve_dtangenty_start, ddcurve_dtangenty_start, dd2curve_dtangenty_start, dd3curve_dtangenty_start>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dcurvaturex_end, ddcurve_dcurvaturex_end, dd2curve_dcurvaturex_end, dd3curve_dcurvaturex_end>(vertices[i - 1], segments[i - 1], vertices[i]) + integrate<dcurve_dcurvaturex_start, ddcurve_dcurvaturex_start, dd2curve_dcurvaturex_start, dd3curve_dcurvaturex_start>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dcurvaturey_end, ddcurve_dcurvaturey_end, dd2curve_dcurvaturey_end, dd3curve_dcurvaturey_end>(vertices[i - 1], segments[i - 1], vertices[i]) + integrate<dcurve_dcurvaturey_start, ddcurve_dcurvaturey_start, dd2curve_dcurvaturey_start, dd3curve_dcurvaturey_start>(vertices[i], segments[i], vertices[i + 1]);
+            *grad++ = DISTANCE_WEIGHT * dot(dx(vertices[i].pos) - originalVertices[i].pos, dx(vertices[i].pos) - originalVertices[i].pos).dx;
+            *grad++ = DISTANCE_WEIGHT * dot(dy(vertices[i].pos) - originalVertices[i].pos, dy(vertices[i].pos) - originalVertices[i].pos).dx;
         }
 
-        *grad++ = integrate<dcurve_dtangentx_end, ddcurve_dtangentx_end, dd2curve_dtangentx_end, dd3curve_dtangentx_end>(vertices[vertices.size() - 1], segments.back(), vertices.back());
-        *grad++ = integrate<dcurve_dtangenty_end, ddcurve_dtangenty_end, dd2curve_dtangenty_end, dd3curve_dtangenty_end>(vertices[vertices.size() - 1], segments.back(), vertices.back());
-        *grad++ = integrate<dcurve_dcurvaturex_end, ddcurve_dcurvaturex_end, dd2curve_dcurvaturex_end, dd3curve_dcurvaturex_end>(vertices[vertices.size() - 1], segments.back(), vertices.back());
-        *grad++ = integrate<dcurve_dcurvaturey_end, ddcurve_dcurvaturey_end, dd2curve_dcurvaturey_end, dd3curve_dcurvaturey_end>(vertices[vertices.size() - 1], segments.back(), vertices.back());
+        // for all points
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(dtangent_x(vertices.front()), segments.front(), vertices[1]);
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(dtangent_y(vertices.front()), segments.front(), vertices[1]);
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(dcurvature_x(vertices.front()), segments.front(), vertices[1]);
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(dcurvature_y(vertices.front()), segments.front(), vertices[1]);
+
+        for (size_t i = 1; i < vertices.size() - 1; ++i) {
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i - 1], segments[i - 1], dtangent_x(vertices[i])) +
+                VARIATION_WEIGHT * integrate<dual_value::df>(dtangent_x(vertices[i]), segments[i], vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i - 1], segments[i - 1], dtangent_y(vertices[i])) +
+                VARIATION_WEIGHT * integrate<dual_value::df>(dtangent_y(vertices[i]), segments[i], vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i - 1], segments[i - 1], dcurvature_x(vertices[i])) +
+                VARIATION_WEIGHT * integrate<dual_value::df>(dcurvature_x(vertices[i]), segments[i], vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i - 1], segments[i - 1], dcurvature_y(vertices[i])) +
+                VARIATION_WEIGHT * integrate<dual_value::df>(dcurvature_y(vertices[i]), segments[i], vertices[i + 1]);
+        }
+
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[vertices.size() - 1], segments.back(), dtangent_x(vertices.back()));
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[vertices.size() - 1], segments.back(), dtangent_y(vertices.back()));
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[vertices.size() - 1], segments.back(), dcurvature_x(vertices.back()));
+        *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[vertices.size() - 1], segments.back(), dcurvature_y(vertices.back()));
 
         // for all segments
-        // integrate dF/dmagnitude_start over current segment
-        // integrate dF/dmagnitude_end over current segment
-        // integrate dF/dalpha_start over current segment
-        // integrate dF/dalpha_end over current segment
         for (size_t i = 0; i < segments.size(); ++i) {
-            *grad++ = integrate<dcurve_dmagnitude_start, ddcurve_dmagnitude_start, dd2curve_dmagnitude_start, dd3curve_dmagnitude_start>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dmagnitude_end, ddcurve_dmagnitude_end, dd2curve_dmagnitude_end, dd3curve_dmagnitude_end>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dalpha_start, ddcurve_dalpha_start, dd2curve_dalpha_start, dd3curve_dalpha_start>(vertices[i], segments[i], vertices[i + 1]);
-            *grad++ = integrate<dcurve_dalpha_end, ddcurve_dalpha_end, dd2curve_dalpha_end, dd3curve_dalpha_end>(vertices[i], segments[i], vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i], dmagnitude_start(segments[i]), vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i], dmagnitude_end(segments[i]), vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i], dalpha_start(segments[i]), vertices[i + 1]);
+            *grad++ = VARIATION_WEIGHT * integrate<dual_value::df>(vertices[i], dalpha_end(segments[i]), vertices[i + 1]);
         }
     }
 
     for (size_t i = 0; i < segments.size(); ++i) {
-        auto& seg = segments[i];
-        auto& v = vertices[i];
-        auto& nv = vertices[i + 1];
-
-        const auto magStart = seg.magnitude_start * seg.magnitude_start;
-        const auto magEnd = seg.magnitude_end * seg.magnitude_end;
-
-        const curve_vertex start{
-            v.pos,
-            v.tangent * magStart,
-            v.curvature * magStart * magStart + v.tangent * seg.alpha_start * magStart
-        };
-
-        const curve_vertex end{
-            nv.pos,
-            nv.tangent * magEnd,
-            nv.curvature * magEnd * magEnd + nv.tangent * seg.alpha_end * magEnd,
-        };
-
-        using vertex_pair = std::pair<const curve_vertex&, const curve_vertex&>;
-        vertex_pair vertices{start, end};
-
-        gsl_function integrand{
-            [] (double t, void* params) {
-                auto& vertices = *static_cast<vertex_pair*>(params);
-
-                const auto dc = dcurvature(vertices.first, vertices.second, t);
-                const auto speed = dhermiteQuintic(vertices.first, vertices.second, t);
-
-                return dc * dc / std::sqrt(dot(speed, speed));
-            },
-            &vertices
-        };
-
-        double result, absError;
-        gsl_integration_qag(&integrand, 0., 1., 1e-3, 1e-3, INTEGRATION_WORKSPACE_SIZE, GSL_INTEG_GAUSS15, workspace, &result, &absError);
-
-        variationIntegralSum += result;
+        variationIntegralSum += integrate<dual_value::f>(vertices[i], segments[i], vertices[i + 1]);
     }
 
     const auto objective = DISTANCE_WEIGHT * distanceSq + VARIATION_WEIGHT * variationIntegralSum;
+    std::cout << "objective=" << objective << '\n';
 
     return objective;
 }
 
+void randomize_samples() {
+    std::random_device rd;
+    std::mt19937 generator{rd()};
+    std::uniform_real_distribution<double> distribution{-0.5, 0.5};
+
+    for (auto&& v : originalVertices) {
+        v.pos.x.x += distribution(generator);
+        v.pos.y.x += distribution(generator);
+    }
+}
+
+void initialize_interpolation() {
+    for (size_t i = 0; i < originalVertices.size(); ++i) {
+        auto_vertices.push_back({ originalVertices[i].pos });
+        auto_vertices.back().t = originalVertices[i].t;
+    }
+
+    for (size_t i = 1; i < auto_vertices.size() - 1; ++i) {
+        auto_vertices[i].tangent = (auto_vertices[i - 1].pos - auto_vertices[i].pos) / dot(auto_vertices[i - 1].pos - auto_vertices[i].pos, auto_vertices[i - 1].pos - auto_vertices[i].pos) +
+            (auto_vertices[i].pos - auto_vertices[i + 1].pos) / dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos);
+        auto_vertices[i].tangent = -auto_vertices[i].tangent / sqrt(dot(auto_vertices[i].tangent, auto_vertices[i].tangent));
+
+        auto_vertices[i].curvature = { 1, 1 };
+    }
+
+    auto_vertices.front().tangent = auto_vertices[1].tangent;
+
+    for (size_t i = 0; i < auto_vertices.size() - 1; ++i) {
+        auto_segments.push_back({ 
+            sqrt(dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos)),
+            sqrt(dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos)),
+            0,
+            0
+        });
+    }
+
+    std::cout << "auto_vertices:\n";
+    for (auto&& v : auto_vertices) {
+        std::cout << v.pos.x.x << ' ' << v.pos.y.x << ' ' << v.tangent.x.x << ' ' << v.tangent.y.x << ' ' << v.curvature.x.x << ' ' << v.curvature.y.x << '\n';
+    }
+
+    std::cout << "auto_segments:\n";
+    for (auto&& s : auto_segments) {
+        std::cout << s.magnitude_start.x << ' ' << s.magnitude_end.x << ' ' << s.alpha_start.x << ' ' << s.alpha_end.x << '\n';
+    }
+
+    std::cout << "vertices:\n";
+    for (auto&& v : vertices) {
+        std::cout << v.pos.x.x << ' ' << v.pos.y.x << ' ' << v.tangent.x.x << ' ' << v.tangent.y.x << ' ' << v.curvature.x.x << ' ' << v.curvature.y.x << '\n';
+    }
+
+    std::cout << "segments:\n";
+    for (auto&& s : segments) {
+        std::cout << s.magnitude_start.x << ' ' << s.magnitude_end.x << ' ' << s.alpha_start.x << ' ' << s.alpha_end.x << '\n';
+    }
+}
+
 int main() {
+    randomize_samples();
+    initialize_interpolation();
+    vertices = auto_vertices;
+    segments = auto_segments;
+
     const unsigned int taskSize = segments.size() * 4 + vertices.size() * 4 + (vertices.size() - 2) * 2;
-    nlopt::opt optimizer(nlopt::LD_SLSQP/*LN_COBYLA*/, taskSize);
+    std::cout << "taskSize=" << taskSize << std::endl;
+    nlopt::opt optimizer(nlopt::/*LD_SLSQP*/LN_COBYLA, taskSize);
     optimizer.set_min_objective(objective, nullptr);
-    optimizer.set_xtol_rel(1e-5);
-    optimizer.set_ftol_abs(1e-5);
-    optimizer.set_ftol_rel(1e-5);
+    optimizer.set_xtol_rel(1e-4);
+    optimizer.set_ftol_abs(1e-4);
+    optimizer.set_ftol_rel(1e-4);
 
     std::vector<double> x(taskSize);
     packArguments(&x[0]);
@@ -539,14 +644,14 @@ int main() {
         const auto dt = 5.0e-3;
         for (double t = 0; t <= 1.0; t += dt) {
             auto&& curvePoint = hermiteQuintic(start, end, t);
-            file << curvePoint.x << ", " << curvePoint.y << ", " << i + t << ",\n";
+            file << curvePoint.x.x << ", " << curvePoint.y.x << ", " << i + t << ",\n";
         }
     }
     file << "];" << std::endl;
 
     file << "var originalSpline = [\n";
     for (auto&& vertex : originalVertices) {
-        file << vertex.x << ", " << vertex.y << ", " << vertex.x << ",\n";
+        file << vertex.pos.x.x << ", " << vertex.pos.y.x << ", " << vertex.t << ",\n";
     }
     file << "];" << std::endl;
 
@@ -574,7 +679,7 @@ int main() {
         const auto dt = 5.0e-3;
         for (double t = 0; t <= 1.0; t += dt) {
             auto&& c = curvature(start, end, t);
-            file << i + t << ", " << c << ", " << i + t << ",\n";
+            file << i + t << ", " << c.x << ", " << i + t << ",\n";
         }
     }
     file << "];" << std::endl;

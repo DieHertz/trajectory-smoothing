@@ -11,14 +11,49 @@ const auto DISTANCE_WEIGHT = 1.0;
 const auto VARIATION_WEIGHT = 1.0;
 
 std::vector<plane_curve_point> curve{
-    { 0, 1, 0 },
-    { 1, 1, 1 },
-    { 2, 2, 2 },
-    { 3, 2, 3 },
-    { 4, 2, 4 },
-    { 5, 2, 5 },
-    { 6, 2, 6 },
-    { 7, 2, 7 }
+    { 10.0, 0.0, 0.0 },
+    { 11.6981, 0.0601598, 0.425 },
+    { 13.3567, 0.418023, 0.85 },
+    { 14.9026, 1.11765, 1.275 },
+    { 16.2661, 2.12757, 1.7 },
+    { 17.4755, 3.32199, 2.125 },
+    { 18.839, 4.3319, 2.55 },
+    { 20.3612, 5.08687, 2.975 },
+    { 21.8835, 5.84183, 3.4 },
+    { 23.247, 6.85175, 3.825 },
+    { 24.3668, 8.12652, 4.25 },
+    { 25.1927, 9.60881, 4.675 },
+    { 25.6873, 1.2319, 5.1 },
+    { 25.8285, 2.9228, 5.525 },
+    { 25.7293, 4.6197, 5.95 },
+    { 25.8106, 6.3169, 6.375 },
+    { 25.8919, 8.0141, 6.8 },
+    { 25.6733, 9.6968, 7.225 },
+    { 25.1047, 1.2955, 7.65 },
+    { 24.2118, 2.7383, 8.075 },
+    { 23.0346, 3.9604, 8.5 },
+    { 21.6261, 4.9066, 8.925 },
+    { 20.0498, 5.5346, 9.35 },
+    { 18.3765, 5.816, 9.775 },
+    { 17.4114, 5.8354, 10.0163705 },
+    { 15.7133, 5.7752, 10.4413705 },
+    { 14.0305, 5.5352, 10.8663705 },
+    { 12.3325, 5.4751, 11.2913705 },
+    { 10.6344, 5.4149, 11.7163705 },
+    { 8.97573, 5.057, 12.1413705 },
+    { 7.42988, 4.3574, 12.5663705 },
+    { 6.06635, 3.3475, 12.9913705 },
+    { 4.94649, 2.0727, 13.4163705 },
+    { 4.12067, 0.5904, 13.8413705 },
+    { 3.62605, 8.9673, 14.2663705 },
+    { 3.48488, 7.2764, 14.6913705 },
+    { 3.7035, 5.5937, 15.1163705 },
+    { 4.21584, 3.9737, 15.5413705 },
+    { 4.72817, 2.3536, 15.9663705 },
+    { 4.94679, 0.6709, 16.3913705 },
+    { 4.92561, 8.97128, 16.8163705 },
+    { 5.02477, 7.27439, 17.2413705 },
+    { 5.00358, 5.57474, 17.6663705 },
 };
 
 struct spline_coefficients {
@@ -126,7 +161,7 @@ void continuity_constraints(unsigned m, double* result, unsigned n, const double
     }
 }
 
-const auto START_END_CONSTRAINTS_NUM = 4;
+const auto START_END_CONSTRAINTS_NUM = 5;
 void start_end_constraints(unsigned m, double* result, unsigned n, const double* x, double*, void*) {
     // Start and end must match
     result[0] = spline(segments.front().x_coeffs, curve.front().t) - curve.front().x;
@@ -137,7 +172,7 @@ void start_end_constraints(unsigned m, double* result, unsigned n, const double*
     // @todo
     // second derivative at start
     // second derivative at end
-    //result[4] = curvature(segments.front(), curve.front().t);
+    result[4] = curvature(segments.front(), curve.front().t);
 }
 
 const auto CURVATURE_CONSTRAINTS_NUM = segments.size();
@@ -159,7 +194,7 @@ int main() {
     optimizer.set_ftol_rel(1e-3);
     optimizer.set_ftol_rel(1e-3);
     optimizer.set_min_objective(objective, nullptr);
-    optimizer.add_equality_mconstraint(continuity_constraints, nullptr, dvec(CONTINUITY_CONSTRAINTS_NUM));
+    //optimizer.add_equality_mconstraint(continuity_constraints, nullptr, dvec(CONTINUITY_CONSTRAINTS_NUM));
     optimizer.add_equality_mconstraint(start_end_constraints, nullptr, dvec(START_END_CONSTRAINTS_NUM));
     //optimizer.add_inequality_mconstraint(curvature_constraints, nullptr, dvec(CURVATURE_CONSTRAINTS_NUM));
 
