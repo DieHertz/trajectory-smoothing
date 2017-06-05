@@ -1,66 +1,12 @@
+#include "vec2.hpp"
 #include "dual.hpp"
+#include "hermite_poly_quintic.hpp"
 #include <gsl/gsl_integration.h>
 #include <nlopt.hpp>
 #include <random>
 #include <vector>
 #include <iostream>
 #include <fstream>
-
-template<typename T>
-struct vec2_base {
-    T x, y;
-
-    vec2_base operator-() const {
-        return { -x, -y };
-    }
-};
-
-template<typename T>
-vec2_base<T> operator+(const vec2_base<T>& a, const vec2_base<T>& b) {
-    return { a.x + b.x, a.y + b.y };
-}
-
-template<typename T>
-vec2_base<T> operator-(const vec2_base<T>& a, const vec2_base<T>& b) {
-    return a + -b;
-}
-
-template<typename T>
-vec2_base<T> operator*(const vec2_base<T>& a, const T& k) {
-    return { a.x * k, a.y * k };
-}
-
-template<typename T>
-vec2_base<T> operator*(const T& k, const vec2_base<T>& a) {
-    return a * k;
-}
-
-template<typename T>
-vec2_base<T> operator*(const vec2_base<T>& a, const double k) {
-    return a * dual{k};
-}
-
-template<typename T>
-vec2_base<T> operator*(const double k, const vec2_base<T>& a) {
-    return a * dual{k};
-}
-
-template<typename T>
-vec2_base<T> operator/(const vec2_base<T>& a, const T& k) {
-    return { a.x / k, a.y / k };
-}
-
-//  Good ole' dot product
-template<typename T>
-T dot(const vec2_base<T>& a, const vec2_base<T>& b) {
-    return a.x * b.x + a.y * b.y;
-}
-
-//  Module of cross product, let's call it cross for convenience
-template<typename T>
-T cross(const vec2_base<T>& a, const vec2_base<T>& b) {
-    return a.x * b.y - a.y * b.x;
-}
 
 using vec2 = vec2_base<dual>;
 
@@ -91,39 +37,17 @@ struct vertex {
     { { 4, 2 }, 4 },
 };*/
 
-std::vector<curve_vertex> vertices{
-    { { 0, 0 }, { 1, 1 }, { 0, 0 }, 0 },
-    { { 1, 1 }, { 1, 1 }, { 1, 1 }, 1 },
-    { { 2, 2 }, { 1, 1 }, { 1, 1 }, 2 },
-    { { 3, 2 }, { 1, 0 }, { 1, -1 }, 3 },
-    { { 4, 2 }, { 1, 0 }, { 0, 0 }, 4 },
-};
-
-std::vector<curve_segment> segments{
-    { 1, 1, 0, 0 },
-    { 1, 1, 0, 0 },
-    { 1, 1, 0, 0 },
-    { 1, 1, 0, 0 },
-};
-
 std::vector<vertex> originalVertices{
     { { 0, 0 }, 0 },
     { { 1, 1 }, 1 },
     { { 2, 2 }, 2 },
-    { { 3, 3 }, 3 },
-    { { 4, 4 }, 4 },
-    { { 5, 5 }, 5 },
-    { { 6, 6 }, 6 },
-    { { 7, 7 }, 7 },
-    { { 8, 8 }, 8 },
-    { { 9, 9 }, 9 },
-    { { 10, 10 }, 10 },
+    { { 3, 2 }, 3 }
 };
 
-std::vector<curve_vertex> auto_vertices;
-std::vector<curve_segment> auto_segments;
+std::vector<curve_vertex> vertices;
+std::vector<curve_segment> segments;
 
-void packArguments(double* out) {
+void packParameters(double* out) {
     for (size_t i = 1; i < vertices.size() - 1; ++i) {
         *out++ = vertices[i].pos.x.x;
         *out++ = vertices[i].pos.y.x;
@@ -144,7 +68,7 @@ void packArguments(double* out) {
     }
 }
 
-void unpackArguments(const double* out) {
+void unpackParameters(const double* out) {
     for (size_t i = 1; i < vertices.size() - 1; ++i) {
         vertices[i].pos.x.x = *out++;
         vertices[i].pos.y.x = *out++;
@@ -165,129 +89,6 @@ void unpackArguments(const double* out) {
     }
 }
 
-double hermiteQuintic0(const double t) {
-    // 1 - 10t^3 + 15t^4 - 6t^5
-    return 1 + t * t * t * (-10 + t * (15 - 6 * t));
-}
-
-double hermiteQuintic1(const double t) {
-    // t - 6t^3 + 8t^4 - 3t^5
-    return t * (1 + t * t * (-6 + t * (8 - 3 * t)));
-}
-
-double hermiteQuintic2(const double t) {
-    // 0.5t^2 - 1.5t^3 + 1.5t^4 - 0.5t^5
-    return t * t * (0.5 + t * (-1.5 + t * (1.5 - 0.5 * t)));
-}
-
-double hermiteQuintic3(const double t) {
-    // 0.5t^3 - t^4 + 0.5t^5
-    return t * t * t * (0.5 + t * (-1 + 0.5 * t));
-}
-
-double hermiteQuintic4(const double t) {
-    // -4t^3 + 7t^4 - 3t^5
-    return t * t * t * (-4 + t * (7 - 3 * t));
-}
-
-double hermiteQuintic5(const double t) {
-    // 10t^3 - 15t^4 + 6t^5
-    return t * t * t * (10 + t * (-15 + 6 * t));
-}
-
-// dC/dt
-double dhermiteQuintic0(const double t) {
-    // -30t^2 + 60t^3 - 30t^4
-    return t * t * (-30 + t * (60 - 30 * t));
-}
-
-double dhermiteQuintic1(const double t) {
-    // 1 - 18t^2 + 32t^3 - 15t^4
-    return 1 + t * t * (-18 + t * (32 - 15 * t));
-}
-
-double dhermiteQuintic2(const double t) {
-    // t - 4.5t^2 + 6t^3 - 2.5t^4
-    return t * (1 + t * (-4.5 + t * (6 - 2.5 * t)));
-}
-
-double dhermiteQuintic3(const double t) {
-    // 1.5t^2 - 4t^3 + 2.5t^4
-    return t * t * (1.5 + t * (-4 + 2.5 * t));
-}
-
-double dhermiteQuintic4(const double t) {
-    // -12t^2 + 28t^3 - 15t^4
-    return t * t * (-12 + t * (28 - 15 * t));
-}
-
-double dhermiteQuintic5(const double t) {
-    // 30t^2 - 60t^3 + 30t^4
-    return t * t * (30 + t * (-60 + 30 * t));
-}
-
-// d^2C/dt^2
-double d2hermiteQuintic0(const double t) {
-    // -60t + 180t^2 - 120t^3
-    return t * (-60 + t * (180 - 120 * t));
-}
-
-double d2hermiteQuintic1(const double t) {
-    // -36t + 96t^2 - 60t^3
-    return t * (-36 + t * (96 - 60 * t));
-}
-
-double d2hermiteQuintic2(const double t) {
-    // 1 - 9t + 18t^2 - 10t^3
-    return 1 + t * (-9 + t * (18 - 10 * t));
-}
-
-double d2hermiteQuintic3(const double t) {
-    // 3t - 12t^2 + 10t^3
-    return t * (3 + t * (-12 + 10 * t));
-}
-
-double d2hermiteQuintic4(const double t) {
-    // -24t + 84t^2 - 60t^3
-    return t * (-24 + t * (84 - 60 * t));
-}
-
-double d2hermiteQuintic5(const double t) {
-    // 60t - 180t^2 + 120t^3
-    return t * (60 + t * (-180 + 120 * t));
-}
-
-// d^3C/dt^3
-double d3hermiteQuintic0(const double t) {
-    // -60 + 360t - 360t^2
-    return -60 + t * (360 - 360 * t);
-}
-
-double d3hermiteQuintic1(const double t) {
-    // -36 + 192t - 180t^2
-    return -36 + t * (192 - 180 * t);
-}
-
-double d3hermiteQuintic2(const double t) {
-    // -9 + 36t - 30t^2
-    return -9 + t * (36 - 30 * t);
-}
-
-double d3hermiteQuintic3(const double t) {
-    // 3 - 24t + 30t^2
-    return 3 + t * (-24 + 30 * t);
-}
-
-double d3hermiteQuintic4(const double t) {
-    // -24 + 168t - 180t^2
-    return -24 + t * (168 - 180 * t);
-}
-
-double d3hermiteQuintic5(const double t) {
-    // 60 - 360t + 360^2
-    return 60 + t * (-360 + 360 * t);
-}
-
 using fn = double(double);
 
 template<fn h0, fn h1, fn h2, fn h3, fn h4, fn h5>
@@ -295,33 +96,33 @@ vec2 spline(const curve_vertex& start, const curve_vertex& end, const double t) 
     return h0(t) * start.pos + h1(t) * start.tangent + h2(t) * start.curvature + h3(t) * end.curvature + h4(t) * end.tangent + h5(t) * end.pos;
 }
 
-vec2 hermiteQuintic(const curve_vertex& start, const curve_vertex& end, const double t) {
-    return spline<hermiteQuintic0, hermiteQuintic1, hermiteQuintic2, hermiteQuintic3, hermiteQuintic4, hermiteQuintic5>(start, end, t);
+vec2 hermite(const curve_vertex& start, const curve_vertex& end, const double t) {
+    return spline<h0, h1, h2, h3, h4, h5>(start, end, t);
 }
 
-vec2 dhermiteQuintic(const curve_vertex& start, const curve_vertex& end, const double t) {
-    return spline<dhermiteQuintic0, dhermiteQuintic1, dhermiteQuintic2, dhermiteQuintic3, dhermiteQuintic4, dhermiteQuintic5>(start, end, t);
+vec2 dhermite(const curve_vertex& start, const curve_vertex& end, const double t) {
+    return spline<dh0, dh1, dh2, dh3, dh4, dh5>(start, end, t);
 }
 
-vec2 d2hermiteQuintic(const curve_vertex& start, const curve_vertex& end, const double t) {
-    return spline<d2hermiteQuintic0, d2hermiteQuintic1, d2hermiteQuintic2, d2hermiteQuintic3, d2hermiteQuintic4, d2hermiteQuintic5>(start, end, t);
+vec2 d2hermite(const curve_vertex& start, const curve_vertex& end, const double t) {
+    return spline<d2h0, d2h1, d2h2, d2h3, d2h4, d2h5>(start, end, t);
 }
 
-vec2 d3hermiteQuintic(const curve_vertex& start, const curve_vertex& end, const double t) {
-    return spline<d3hermiteQuintic0, d3hermiteQuintic1, d3hermiteQuintic2, d3hermiteQuintic3, d3hermiteQuintic4, d3hermiteQuintic5>(start, end, t);
+vec2 d3hermite(const curve_vertex& start, const curve_vertex& end, const double t) {
+    return spline<d3h0, d3h1, d3h2, d3h3, d3h4, d3h5>(start, end, t);
 }
 
 dual curvature(const curve_vertex& start, const curve_vertex& end, const double t) {
-    const auto dcurve = dhermiteQuintic(start, end, t);
-    const auto d2curve = d2hermiteQuintic(start, end, t);
+    const auto dcurve = dhermite(start, end, t);
+    const auto d2curve = d2hermite(start, end, t);
 
     return cross(dcurve, d2curve) / pow(dot(dcurve, dcurve), 1.5);
 }
 
 dual dcurvature(const curve_vertex& start, const curve_vertex& end, const double t) {
-    const auto dcurve = dhermiteQuintic(start, end, t);
-    const auto d2curve = d2hermiteQuintic(start, end, t);
-    const auto d3curve = d3hermiteQuintic(start, end, t);
+    const auto dcurve = dhermite(start, end, t);
+    const auto d2curve = d2hermite(start, end, t);
+    const auto d3curve = d3hermite(start, end, t);
 
     const auto velocitySq = dot(dcurve, dcurve);
 
@@ -438,7 +239,7 @@ double integrate(const curve_vertex& start, const curve_segment& segment, const 
             auto& vertices = *static_cast<vertex_pair*>(params);
 
             const auto dc = dcurvature(vertices.first, vertices.second, t);
-            const auto speed = dhermiteQuintic(vertices.first, vertices.second, t);
+            const auto speed = dhermite(vertices.first, vertices.second, t);
             const auto f = get<which>(dc * dc / sqrt(dot(speed, speed)));
 
             return f;
@@ -459,7 +260,7 @@ double integrate(const curve_vertex& start, const curve_segment& segment, const 
         const auto t = i * dt;
 
         const auto dc = dcurvature(vertices.first, vertices.second, t);
-        const auto speed = dhermiteQuintic(vertices.first, vertices.second, t);
+        const auto speed = dhermite(vertices.first, vertices.second, t);
         const auto f = dc * dc / sqrt(dot(speed, speed));
 
         result += get<which>(f) * dt;
@@ -473,7 +274,7 @@ double integrate(const curve_vertex& start, const curve_segment& segment, const 
 }
 
 double objective(unsigned n, const double* x, double* grad, void*) {
-    unpackArguments(x);
+    unpackParameters(x);
 
     // Distance objective, only applied for inner points
     auto distanceSq = 0.;
@@ -533,68 +334,35 @@ double objective(unsigned n, const double* x, double* grad, void*) {
     return objective;
 }
 
-void randomize_samples() {
-    std::random_device rd;
-    std::mt19937 generator{rd()};
-    std::uniform_real_distribution<double> distribution{-0.5, 0.5};
-
-    for (auto&& v : originalVertices) {
-        v.pos.x.x += distribution(generator);
-        v.pos.y.x += distribution(generator);
-    }
-}
-
 void initialize_interpolation() {
     for (size_t i = 0; i < originalVertices.size(); ++i) {
-        auto_vertices.push_back({ originalVertices[i].pos });
-        auto_vertices.back().t = originalVertices[i].t;
+        vertices.push_back({ originalVertices[i].pos });
+        vertices.back().t = originalVertices[i].t;
     }
 
-    for (size_t i = 1; i < auto_vertices.size() - 1; ++i) {
-        auto_vertices[i].tangent = (auto_vertices[i - 1].pos - auto_vertices[i].pos) / dot(auto_vertices[i - 1].pos - auto_vertices[i].pos, auto_vertices[i - 1].pos - auto_vertices[i].pos) +
-            (auto_vertices[i].pos - auto_vertices[i + 1].pos) / dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos);
-        auto_vertices[i].tangent = -auto_vertices[i].tangent / sqrt(dot(auto_vertices[i].tangent, auto_vertices[i].tangent));
+    for (size_t i = 1; i < vertices.size() - 1; ++i) {
+        vertices[i].tangent = (vertices[i - 1].pos - vertices[i].pos) / dot(vertices[i - 1].pos - vertices[i].pos, vertices[i - 1].pos - vertices[i].pos) +
+            (vertices[i].pos - vertices[i + 1].pos) / dot(vertices[i].pos - vertices[i + 1].pos, vertices[i].pos - vertices[i + 1].pos);
+        vertices[i].tangent = -vertices[i].tangent / sqrt(dot(vertices[i].tangent, vertices[i].tangent));
 
-        auto_vertices[i].curvature = { 1, 1 };
+        vertices[i].curvature = { 1, 1 };
     }
 
-    auto_vertices.front().tangent = auto_vertices[1].tangent;
+    vertices.front().tangent = vertices[1].tangent;
+    vertices.back().tangent = vertices[vertices.size() - 2].tangent;
 
-    for (size_t i = 0; i < auto_vertices.size() - 1; ++i) {
-        auto_segments.push_back({ 
-            sqrt(dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos)),
-            sqrt(dot(auto_vertices[i].pos - auto_vertices[i + 1].pos, auto_vertices[i].pos - auto_vertices[i + 1].pos)),
+    for (size_t i = 0; i < vertices.size() - 1; ++i) {
+        segments.push_back({ 
+            sqrt(dot(vertices[i].pos - vertices[i + 1].pos, vertices[i].pos - vertices[i + 1].pos)),
+            sqrt(dot(vertices[i].pos - vertices[i + 1].pos, vertices[i].pos - vertices[i + 1].pos)),
             0,
             0
         });
     }
-
-    std::cout << "auto_vertices:\n";
-    for (auto&& v : auto_vertices) {
-        std::cout << v.pos.x.x << ' ' << v.pos.y.x << ' ' << v.tangent.x.x << ' ' << v.tangent.y.x << ' ' << v.curvature.x.x << ' ' << v.curvature.y.x << '\n';
-    }
-
-    std::cout << "auto_segments:\n";
-    for (auto&& s : auto_segments) {
-        std::cout << s.magnitude_start.x << ' ' << s.magnitude_end.x << ' ' << s.alpha_start.x << ' ' << s.alpha_end.x << '\n';
-    }
-
-    std::cout << "vertices:\n";
-    for (auto&& v : vertices) {
-        std::cout << v.pos.x.x << ' ' << v.pos.y.x << ' ' << v.tangent.x.x << ' ' << v.tangent.y.x << ' ' << v.curvature.x.x << ' ' << v.curvature.y.x << '\n';
-    }
-
-    std::cout << "segments:\n";
-    for (auto&& s : segments) {
-        std::cout << s.magnitude_start.x << ' ' << s.magnitude_end.x << ' ' << s.alpha_start.x << ' ' << s.alpha_end.x << '\n';
-    }
 }
 
 int main() {
-    randomize_samples();
     initialize_interpolation();
-    vertices = auto_vertices;
-    segments = auto_segments;
 
     const unsigned int taskSize = segments.size() * 4 + vertices.size() * 4 + (vertices.size() - 2) * 2;
     std::cout << "taskSize=" << taskSize << std::endl;
@@ -605,7 +373,7 @@ int main() {
     optimizer.set_ftol_rel(1e-4);
 
     std::vector<double> x(taskSize);
-    packArguments(&x[0]);
+    packParameters(&x[0]);
 
     double objectiveVal;
     try {
@@ -643,7 +411,7 @@ int main() {
 
         const auto dt = 5.0e-3;
         for (double t = 0; t <= 1.0; t += dt) {
-            auto&& curvePoint = hermiteQuintic(start, end, t);
+            auto&& curvePoint = hermite(start, end, t);
             file << curvePoint.x.x << ", " << curvePoint.y.x << ", " << i + t << ",\n";
         }
     }
