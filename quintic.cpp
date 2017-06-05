@@ -29,14 +29,6 @@ struct vertex {
     double t;
 };
 
-/*std::vector<vertex> originalVertices{
-    { { 0, 0 }, 0 },
-    { { 1, 1 }, 1 },
-    { { 2, 2 }, 2 },
-    { { 3, 2 }, 3 },
-    { { 4, 2 }, 4 },
-};*/
-
 std::vector<vertex> originalVertices{
     { { 0, 0 }, 0 },
     { { 1, 1 }, 1 },

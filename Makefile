@@ -6,3 +6,9 @@ LIB_DIRS := $(PREFIX)/nlopt/2.4.2_2/lib \
 
 default: quintic.cpp
 	g++ quintic.cpp -o quintic $(addprefix -I,$(INCLUDE_DIRS)) $(addprefix -L,$(LIB_DIRS)) -std=c++1z -lm -lnlopt -lgsl -O3 -Ofast
+
+piecewise: piecewise-quintic.cpp
+	g++ piecewise-quintic.cpp -o piecewise-quintic $(addprefix -I,$(INCLUDE_DIRS)) $(addprefix -L,$(LIB_DIRS)) -std=c++1z -lm -lnlopt -lgsl -O3 -Ofast
+
+cubic: main.cpp
+	g++ main.cpp -o cubic $(addprefix -I,$(INCLUDE_DIRS)) $(addprefix -L,$(LIB_DIRS)) -std=c++1z -lm -lnlopt -lgsl -O3 -Ofast
