@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head><title>Canvas code example</title>
+<script type="text/javascript" src="./spline.js"></script>
+<script type="text/javascript">
+
+var VARIABLES_PER_SEGMENT = 7;
+
+function spline(segments, t) {
+    var offset = 0;
+    for (offset; offset < segments.length; offset += VARIABLES_PER_SEGMENT) {
+        if (segments[offset + 0] <= t && t <= segments[offset + 1]) {
+            return segments[offset + 2] + segments[offset + 3] * t + segments[offset + 4] * t * t / 2 + segments[offset + 5] * t * t * t / 6 + segments[offset + 6] * t * t * t * t / 24;
+        }
+    }
+}
+
+function dspline(segments, t) {
+    for (var offset = 0; offset < segments.length; offset += VARIABLES_PER_SEGMENT) {
+        if (segments[offset + 0] <= t && t <= segments[offset + 1]) {
+            return segments[offset + 3] + segments[offset + 4] * t + segments[offset + 5] * t * t / 2 + segments[offset + 6] * t * t * t / 6;
+        }
+    }
+}
+
+function dspline2(segments, t) {
+    for (var offset = 0; offset < segments.length; offset += VARIABLES_PER_SEGMENT) {
+        if (segments[offset + 0] <= t && t <= segments[offset + 1]) {
+            return segments[offset + 4] + segments[offset + 5] * t + segments[offset + 6] * t * t / 2;
+        }
+    }
+}
+
+function dspline3(segments, t) {
+    for (var offset = 0; offset < segments.length; offset += VARIABLES_PER_SEGMENT) {
+        if (segments[offset + 0] <= t && t <= segments[offset + 1]) {
+            return segments[offset + 5] + segments[offset + 6] * t;
+        }
+    }
+}
+
+function curvature(t) {
+    var dx = dspline(xSegments, t);
+    var dy = dspline(ySegments, t);
+    var dx2 = dspline2(xSegments, t);
+    var dy2 = dspline2(ySegments, t);
+
+    return (dx * dy2 - dx2 * dy) / Math.pow(dx * dx + dy * dy, 1.5);
+}
+
+function dcurvature(t) {
+    var dx = dspline(xSegments, t);
+    var dy = dspline(ySegments, t);
+    var dx2 = dspline2(xSegments, t);
+    var dy2 = dspline2(ySegments, t);
+    var dx3 = dspline3(xSegments, t);
+    var dy3 = dspline3(ySegments, t);
+
+    var velocitySq = dx * dx + dy * dy;
+
+    return ((dx * dy3 - dx3 * dy) * Math.pow(velocitySq, 1.5) - 3 * (dx * dy2 - dx2 * dy) * Math.sqrt(velocitySq) * (dx * dx2 + dy * dy2)) / Math.pow(velocitySq, 3);
+}
+
+function draw() {
+ var canvas = document.getElementById("canvas");
+ if (null==canvas || !canvas.getContext) return;
+
+ var axes={}, ctx=canvas.getContext("2d");
+ axes.x0 = .5 + .5*canvas.width;  // x0 pixels from left to x=0
+ axes.y0 = .5 + .5*canvas.height; // y0 pixels from top to y=0
+ axes.scalex = 20;                 // 40 pixels from x=0 to x=1
+ axes.scaley = 20;
+ axes.doNegativeX = true;
+
+    showAxes(ctx,axes);
+
+    funGraphTabulated(ctx, axes, originalSpline, "rgb(0,0,0)", 3, true);
+    funGraphTabulated(ctx, axes, smoothedSpline, "rgb(255,0,0)", 3);
+    funGraphTabulated(ctx, axes, curvaturePlot, "rgb(0,255,0)", 3);
+    //funGraphTabulatedX(ctx, axes, smoothedSpline, "rgb(255,0,0)", 3);
+    //funGraphTabulatedY(ctx, axes, smoothedSpline, "rgb(0,0,255)", 3);
+
+    /*funGraphParametric(ctx, axes,
+        spline.bind(undefined, xSegments), spline.bind(undefined, ySegments),
+        splineTMin, splineTMax,
+        "rgb(255, 0, 0)", 3);
+    funGraph(ctx,axes,curvature,"rgb(255,127,63)",3);
+    funGraph(ctx,axes,dcurvature,"rgb(127,255,63)",3);*/
+}
+
+function funGraph (ctx,axes,func,color,thick) {
+ var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scalex=axes.scalex, scaley=axes.scaley;
+ var iMax = Math.round((ctx.canvas.width-x0)/dx);
+ var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+ ctx.beginPath();
+ ctx.lineWidth = thick;
+ ctx.strokeStyle = color;
+
+ for (var i=iMin;i<=iMax;i++) {
+  xx = dx*i; yy = scaley*func(xx/scalex);
+  if (i==iMin) ctx.moveTo(x0+xx,y0-yy);
+  else         ctx.lineTo(x0+xx,y0-yy);
+ }
+ ctx.stroke();
+}
+
+function funGraphParametric(ctx, axes, x, y, tmin, tmax, color, thickness) {
+    var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scalex=axes.scalex, scaley=axes.scaley;
+    var iMax = Math.round((ctx.canvas.width-x0)/dx);
+    var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+    ctx.beginPath();
+    ctx.lineWidth = thickness;
+    ctx.strokeStyle = color;
+
+    var dt = 1.0e-2;
+    for (var t = tmin; t <= tmax; t += dt) {
+        var x_t = scalex * x(t), y_t = scaley * y(t);
+
+        if (t == tmin) ctx.moveTo(x0 + x_t, y0 - y_t);
+        else ctx.lineTo(x0 + x_t, y0 - y_t);
+    }
+
+    ctx.stroke();
+}
+
+function funGraphTabulated(ctx, axes, xyt, color, thickness, dots) {
+    if (xyt.length % 3 != 0) {
+        throw new Error('Incorrect tabulated planar function');
+    }
+
+    var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scalex=axes.scalex, scaley=axes.scaley;
+    var iMax = Math.round((ctx.canvas.width-x0)/dx);
+    var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+    ctx.beginPath();
+    ctx.lineWidth = thickness;
+    ctx.strokeStyle = color;
+
+    for (var i = 0; i < xyt.length; i += 3) {
+        var x_t = scalex * xyt[i + 0], y_t = scaley * xyt[i + 1];
+
+        if (dots) {
+            ctx.fillRect(x0 + x_t - 5, y0 - y_t - 5, 10, 10);
+            ctx.stroke();
+            ctx.strokeStyle = color;
+        }
+
+        if (i == 0) ctx.moveTo(x0 + x_t, y0 - y_t);
+        else ctx.lineTo(x0 + x_t, y0 - y_t);
+    }
+
+    ctx.stroke();
+}
+
+function funGraphTabulatedX(ctx, axes, xyt, color, thickness, dots) {
+    if (xyt.length % 3 != 0) {
+        throw new Error('Incorrect tabulated planar function');
+    }
+
+    var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scalex=axes.scalex, scaley=axes.scaley;
+    var iMax = Math.round((ctx.canvas.width-x0)/dx);
+    var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+    ctx.beginPath();
+    ctx.lineWidth = thickness;
+    ctx.strokeStyle = color;
+
+    for (var i = 0; i < xyt.length; i += 3) {
+        var x_t = scalex * xyt[i + 2], y_t = scaley * xyt[i + 0];
+
+        if (dots) {
+            ctx.fillRect(x0 + x_t - 5, y0 - y_t - 5, 10, 10);
+            ctx.stroke();
+            ctx.strokeStyle = color;
+        }
+
+        if (i == 0) ctx.moveTo(x0 + x_t, y0 - y_t);
+        else ctx.lineTo(x0 + x_t, y0 - y_t);
+    }
+
+    ctx.stroke();
+}
+
+function funGraphTabulatedY(ctx, axes, xyt, color, thickness, dots) {
+    if (xyt.length % 3 != 0) {
+        throw new Error('Incorrect tabulated planar function');
+    }
+
+    var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scalex=axes.scalex, scaley=axes.scaley;
+    var iMax = Math.round((ctx.canvas.width-x0)/dx);
+    var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+    ctx.beginPath();
+    ctx.lineWidth = thickness;
+    ctx.strokeStyle = color;
+
+    for (var i = 0; i < xyt.length; i += 3) {
+        var x_t = scalex * xyt[i + 2], y_t = scaley * xyt[i + 1];
+
+        if (dots) {
+            ctx.fillRect(x0 + x_t - 5, y0 - y_t - 5, 10, 10);
+            ctx.stroke();
+            ctx.strokeStyle = color;
+        }
+
+        if (i == 0) ctx.moveTo(x0 + x_t, y0 - y_t);
+        else ctx.lineTo(x0 + x_t, y0 - y_t);
+    }
+
+    ctx.stroke();
+}
+
+function showAxes(ctx,axes) {
+ var x0=axes.x0, w=ctx.canvas.width;
+ var y0=axes.y0, h=ctx.canvas.height;
+ var xmin = axes.doNegativeX ? 0 : x0;
+ ctx.beginPath();
+ ctx.strokeStyle = "rgb(128,128,128)"; 
+ ctx.moveTo(xmin,y0); ctx.lineTo(w,y0);  // X axis
+ ctx.moveTo(x0,0);    ctx.lineTo(x0,h);  // Y axis
+ ctx.stroke();
+}
+</script>
+</head>
+<body onload="draw()">
+<canvas id="canvas" width="1280" height="1024"></canvas>
+</body>
+</html>
